@@ -1,0 +1,11 @@
+{
+  "name": "elixir-arr-stack",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Elixir marketplace Arr Stack module (source-js-v1): Sonarr/Radarr behind Elixir's media-manager interface.",
+  "scripts": {
+    "test": "node --import ../_shared/test-sdk/register.mjs --test test/*.test.mjs"
+  },
+  "license": "MIT"
+}

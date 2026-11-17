@@ -1,0 +1,11 @@
+{
+  "name": "elixir-torrentio-source",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Elixir marketplace source module (source-js-v1): torrentio acquisition candidates.",
+  "scripts": {
+    "test": "node --test"
+  },
+  "license": "MIT"
+}

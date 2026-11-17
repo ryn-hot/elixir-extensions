@@ -1,0 +1,1023 @@
+# Arr Stack: one marketplace extension. Its containers are declared under
+# `stack` (official images pinned by digest) and run by Elixir's orchestrator
+# in its sandbox. src/main.mjs runs in Elixir's long-lived extension executor
+# and answers Elixir's media-manager interface by calling those containers.
+id: elx:onccuaai552twis37i2jfdup2xb2ufbdn27sp3zljelnn7qzvtwq/arr-stack
+version: 1.0.0
+kind: module
+name: Arr Stack
+description: Sonarr, Radarr and Prowlarr from their official images, wired to Elixir's
+  built-in qBittorrent and NZBGet with public indexers and optional NZBGeek.
+permissions:
+- drivers.configure.downloader.nzb
+- drivers.configure.downloader.torrent
+- drivers.configure.indexer.registry
+- drivers.configure.media.manager.movies
+- drivers.configure.media.manager.tv
+- network.egress
+- runtime.manage_containers
+runtime:
+  type: container
+  profile: source-js-v1
+  entrypoint: src/main.mjs
+  security:
+    run_as_non_root: true
+    read_only_rootfs: true
+    no_new_privileges: true
+    drop_capabilities:
+    - ALL
+    prohibit_docker_socket: true
+    prohibit_host_media_mounts: true
+    cpu_quota: '0.1'
+    memory_limit_mb: 160
+stack:
+  modules:
+  - id: sonarr
+    version: 1.0.0
+    kind: module
+    name: Sonarr
+    description: TV series manager module backed by Sonarr.
+    permissions:
+    - runtime.manage_containers
+    - network.egress
+    provides:
+    - capability: media.manager.tv
+      slot: default
+      cardinality: one
+      implementation: sonarr
+      scope:
+        media_types:
+        - series
+        - anime
+        actions:
+        - add
+        - monitor
+        - search
+        requires_account: false
+        required_fields: []
+    - capability: media.search.tv
+      slot: default
+      cardinality: many
+      implementation: sonarr
+      scope:
+        media_types:
+        - series
+        actions:
+        - search
+        requires_account: false
+        required_fields: []
+    - capability: media.search.anime
+      slot: default
+      cardinality: many
+      implementation: sonarr
+      scope:
+        media_types:
+        - anime
+        actions:
+        - search
+        requires_account: false
+        required_fields: []
+    requires: []
+    conflicts:
+    - capability: media.manager.tv
+      slot: default
+      policy: prompt_replace
+    runtime:
+      type: container
+      image: lscr.io/linuxserver/sonarr@sha256:f83bc8426c8260e1901094b43fb9796bd47b3ebd874e4c53a3711ca4df791dcc
+      ports:
+      - container: 8989
+      volumes:
+      - "{downloads}:/downloads"
+      - "{media}/tv:/tv"
+    backup:
+      retention: 5
+      items:
+      - id: config
+        label: Sonarr configuration
+        container_path: "/config"
+    networking:
+      service_port:
+        scheme: http
+        container_port: 8989
+  - id: radarr
+    version: 1.0.0
+    kind: module
+    name: Radarr
+    description: Movie manager module backed by Radarr.
+    permissions:
+    - runtime.manage_containers
+    - network.egress
+    provides:
+    - capability: media.manager.movies
+      slot: default
+      cardinality: one
+      implementation: radarr
+      scope:
+        media_types:
+        - movie
+        actions:
+        - add
+        - monitor
+        - search
+        requires_account: false
+        required_fields: []
+    - capability: media.search.movies
+      slot: default
+      cardinality: many
+      implementation: radarr
+      scope:
+        media_types:
+        - movie
+        actions:
+        - search
+        requires_account: false
+        required_fields: []
+    requires: []
+    conflicts:
+    - capability: media.manager.movies
+      slot: default
+      policy: prompt_replace
+    runtime:
+      type: container
+      image: lscr.io/linuxserver/radarr@sha256:df843d96b812d858b94377ffed1918424ece6735038a19e8ff93730277757b65
+      ports:
+      - container: 7878
+      volumes:
+      - "{downloads}:/downloads"
+      - "{media}/movies:/movies"
+    backup:
+      retention: 5
+      items:
+      - id: config
+        label: Radarr configuration
+        container_path: "/config"
+    networking:
+      service_port:
+        scheme: http
+        container_port: 7878
+  - id: prowlarr
+    version: 1.0.0
+    kind: module
+    name: Prowlarr
+    description: Indexer registry module backed by Prowlarr.
+    permissions:
+    - runtime.manage_containers
+    - network.egress
+    provides:
+    - capability: indexer.registry
+      slot: default
+      cardinality: one
+      implementation: prowlarr
+    requires: []
+    conflicts:
+    - capability: indexer.registry
+      slot: default
+      policy: prompt_replace
+    runtime:
+      type: container
+      image: lscr.io/linuxserver/prowlarr@sha256:6df73ab9e99d0dbaad27c39d8a47c600333eebea80fcb56253a0bb8b630c8115
+      ports:
+      - container: 9696
+    backup:
+      retention: 5
+      items:
+      - id: config
+        label: Prowlarr configuration
+        container_path: "/config"
+    networking:
+      service_port:
+        scheme: http
+        container_port: 9696
+  connectors:
+  - id: public-indexers
+    version: 1.0.0
+    kind: connector
+    name: Prowlarr Public Indexers
+    description: Register Elixir's curated public torrent indexers in Prowlarr.
+    permissions:
+    - drivers.configure.indexer.registry
+    targets:
+    - capability: indexer.registry
+      slot: default
+    actions:
+    - type: driver_patch
+      target:
+        capability: indexer.registry
+        slot: default
+      patch:
+        op: register_indexers
+        indexers:
+        - name: AnimeTosho
+          implementation: Torznab
+          url: https://feed.animetosho.org
+          auth:
+            requires_account: false
+          tags:
+          - elixir
+          - public
+          enabled: true
+        - name: Demonoid Clone
+          implementation: demonoid-clone
+          url: https://demonoid.nl/
+          auth:
+            requires_account: false
+          tags:
+          - elixir
+          - public
+          enabled: true
+        - name: EZTV
+          implementation: eztv
+          url: https://eztvx.to/
+          auth:
+            requires_account: false
+          tags:
+          - elixir
+          - public
+          enabled: true
+        - name: LimeTorrents
+          implementation: limetorrents
+          url: https://limetorrents.ninjaproxy1.com/
+          auth:
+            requires_account: false
+          settings:
+            downloadlink: 1
+          tags:
+          - elixir
+          - public
+          enabled: true
+        - name: showRSS
+          implementation: showrss
+          url: https://showrss.info/
+          auth:
+            requires_account: false
+          tags:
+          - elixir
+          - public
+          enabled: true
+        - name: SubsPlease
+          implementation: SubsPlease
+          url: https://subsplease.org/
+          auth:
+            requires_account: false
+          tags:
+          - elixir
+          - public
+          enabled: true
+        - name: The Pirate Bay
+          implementation: thepiratebay
+          url: https://thepiratebay.org/
+          auth:
+            requires_account: false
+          tags:
+          - elixir
+          - public
+          enabled: true
+        - name: Torrent Downloads
+          implementation: torrentdownloads
+          url: https://www.torrentdownloads.pro/
+          auth:
+            requires_account: false
+          settings:
+            downloadlink: 1
+          tags:
+          - elixir
+          - public
+          enabled: true
+        - name: TorrentGalaxyClone
+          implementation: torrentgalaxyclone
+          url: https://torrentgalaxy.info/
+          auth:
+            requires_account: false
+          tags:
+          - elixir
+          - public
+          enabled: true
+        - name: YTS
+          implementation: yts
+          url: https://yts.bz/
+          auth:
+            requires_account: false
+          tags:
+          - elixir
+          - public
+          enabled: true
+  - id: prowlarr-sonarr
+    version: 1.0.0
+    kind: connector
+    name: Prowlarr Sonarr App
+    description: Register Sonarr as a Prowlarr application.
+    permissions:
+    - drivers.configure.indexer.registry
+    targets:
+    - capability: indexer.registry
+      slot: default
+    actions:
+    - type: driver_patch
+      target:
+        capability: indexer.registry
+        slot: default
+      patch:
+        op: register_apps
+        apps:
+        - name: Sonarr
+          implementation: Sonarr
+          url: http://sonarr.stack:8989
+          categories:
+          - '5000'
+          enabled: true
+  - id: prowlarr-radarr
+    version: 1.0.0
+    kind: connector
+    name: Prowlarr Radarr App
+    description: Register Radarr as a Prowlarr application.
+    permissions:
+    - drivers.configure.indexer.registry
+    targets:
+    - capability: indexer.registry
+      slot: default
+    actions:
+    - type: driver_patch
+      target:
+        capability: indexer.registry
+        slot: default
+      patch:
+        op: register_apps
+        apps:
+        - name: Radarr
+          implementation: Radarr
+          url: http://radarr.stack:7878
+          categories:
+          - '2000'
+          enabled: true
+  - id: nzbgeek
+    version: 1.0.0
+    kind: connector
+    name: Prowlarr NZBGeek Indexer
+    description: Register NZBGeek in Prowlarr. Requires an NZBGeek API key.
+    permissions:
+    - drivers.configure.indexer.registry
+    targets:
+    - capability: indexer.registry
+      slot: default
+    actions:
+    - type: driver_patch
+      target:
+        capability: indexer.registry
+        slot: default
+      patch:
+        op: register_indexers
+        indexers:
+        - name: NZBgeek
+          implementation: NZBgeek
+          url: https://api.nzbgeek.info
+          auth:
+            requires_account: true
+            required_fields:
+            - api_key
+          settings:
+            apiPath: "/api"
+          tags:
+          - elixir
+          - usenet
+          - private
+          - paid
+          enabled: true
+  - id: sonarr-defaults
+    version: 1.0.0
+    kind: connector
+    name: Sonarr Defaults
+    description: Apply default root folders for Sonarr.
+    permissions:
+    - drivers.configure.media.manager.tv
+    targets:
+    - capability: media.manager.tv
+      slot: default
+    actions:
+    - type: driver_patch
+      target:
+        capability: media.manager.tv
+        slot: default
+      patch:
+        op: set_root_folders
+        roots:
+        - path: "/tv"
+          default: true
+  - id: sonarr-quality-policy
+    version: 1.0.0
+    kind: connector
+    name: Sonarr Quality Policy
+    description: Apply Elixir's blended TRaSH quality policy preset to Sonarr.
+    permissions:
+    - drivers.configure.media.manager.tv
+    targets:
+    - capability: media.manager.tv
+      slot: default
+    actions:
+    - type: driver_patch
+      target:
+        capability: media.manager.tv
+        slot: default
+      patch:
+        op: apply_quality_policy_preset
+        policy:
+          preset: modern_codecs
+          profile_name: Elixir Modern Codecs
+  - id: radarr-defaults
+    version: 1.0.0
+    kind: connector
+    name: Radarr Defaults
+    description: Apply default root folders for Radarr.
+    permissions:
+    - drivers.configure.media.manager.movies
+    targets:
+    - capability: media.manager.movies
+      slot: default
+    actions:
+    - type: driver_patch
+      target:
+        capability: media.manager.movies
+        slot: default
+      patch:
+        op: set_root_folders
+        roots:
+        - path: "/movies"
+          default: true
+  - id: radarr-quality-policy
+    version: 1.0.0
+    kind: connector
+    name: Radarr Quality Policy
+    description: Apply Elixir's blended TRaSH quality policy preset to Radarr.
+    permissions:
+    - drivers.configure.media.manager.movies
+    targets:
+    - capability: media.manager.movies
+      slot: default
+    actions:
+    - type: driver_patch
+      target:
+        capability: media.manager.movies
+        slot: default
+      patch:
+        op: apply_quality_policy_preset
+        policy:
+          preset: modern_codecs
+          profile_name: Elixir Modern Codecs
+  - id: qbittorrent-defaults
+    version: 1.0.0
+    kind: connector
+    name: qBittorrent Defaults
+    description: Apply default categories and paths for qBittorrent.
+    permissions:
+    - drivers.configure.downloader.torrent
+    targets:
+    - capability: downloader.torrent
+      slot: default
+    actions:
+    - type: driver_patch
+      target:
+        capability: downloader.torrent
+        slot: default
+      patch:
+        op: set_categories
+        categories:
+        - name: tv
+          save_path: "/downloads/tv"
+        - name: anime
+          save_path: "/downloads/anime"
+        - name: movies
+          save_path: "/downloads/movies"
+    - type: driver_patch
+      target:
+        capability: downloader.torrent
+        slot: default
+      patch:
+        op: set_preferences
+        default_save_path: "/downloads"
+        incomplete_path: "/downloads/.incomplete"
+        use_incomplete: true
+  - id: nzbget-defaults
+    version: 1.0.0
+    kind: connector
+    name: NZBGet Defaults
+    description: Apply default categories and paths for NZBGet.
+    permissions:
+    - drivers.configure.downloader.nzb
+    targets:
+    - capability: downloader.nzb
+      slot: default
+    actions:
+    - type: driver_patch
+      target:
+        capability: downloader.nzb
+        slot: default
+      patch:
+        op: set_categories
+        categories:
+        - name: tv
+          save_path: "/downloads/tv"
+        - name: anime
+          save_path: "/downloads/anime"
+        - name: movies
+          save_path: "/downloads/movies"
+    - type: driver_patch
+      target:
+        capability: downloader.nzb
+        slot: default
+      patch:
+        op: set_preferences
+        main_dir: "/config"
+        default_save_path: "/downloads"
+        incomplete_path: "/runtime/incomplete"
+        nzb_dir: "/runtime/nzb"
+        queue_dir: "/runtime/queue"
+        temp_dir: "/runtime/tmp"
+        script_dir: "/config/scripts"
+        log_file: "/config/nzbget.log"
+        use_incomplete: true
+  - id: sonarr-qbittorrent
+    version: 1.0.0
+    kind: connector
+    name: Sonarr qBittorrent Downloader
+    description: Configure qBittorrent as the download client for Sonarr.
+    permissions:
+    - drivers.configure.media.manager.tv
+    targets:
+    - capability: media.manager.tv
+      slot: default
+    actions:
+    - type: driver_patch
+      target:
+        capability: media.manager.tv
+        slot: default
+      patch:
+        op: set_downloaders
+        downloaders:
+        - name: qBittorrent
+          type: qbittorrent
+          url: http://elx-qbittorrent:8080
+          category: tv
+          tags:
+          - elixir
+          enabled: true
+  - id: radarr-qbittorrent
+    version: 1.0.0
+    kind: connector
+    name: Radarr qBittorrent Downloader
+    description: Configure qBittorrent as the download client for Radarr.
+    permissions:
+    - drivers.configure.media.manager.movies
+    targets:
+    - capability: media.manager.movies
+      slot: default
+    actions:
+    - type: driver_patch
+      target:
+        capability: media.manager.movies
+        slot: default
+      patch:
+        op: set_downloaders
+        downloaders:
+        - name: qBittorrent
+          type: qbittorrent
+          url: http://elx-qbittorrent:8080
+          category: movies
+          tags:
+          - elixir
+          enabled: true
+  - id: sonarr-nzbget
+    version: 1.0.0
+    kind: connector
+    name: Sonarr NZBGet Downloader
+    description: Configure NZBGet as the Usenet download client for Sonarr.
+    permissions:
+    - drivers.configure.media.manager.tv
+    targets:
+    - capability: media.manager.tv
+      slot: default
+    actions:
+    - type: driver_patch
+      target:
+        capability: media.manager.tv
+        slot: default
+      patch:
+        op: set_downloaders
+        downloaders:
+        - name: NZBGet
+          type: Nzbget
+          url: http://elx-nzbget:6789
+          category: tv
+          tags:
+          - elixir
+          - usenet
+          enabled: true
+  - id: radarr-nzbget
+    version: 1.0.0
+    kind: connector
+    name: Radarr NZBGet Downloader
+    description: Configure NZBGet as the Usenet download client for Radarr.
+    permissions:
+    - drivers.configure.media.manager.movies
+    targets:
+    - capability: media.manager.movies
+      slot: default
+    actions:
+    - type: driver_patch
+      target:
+        capability: media.manager.movies
+        slot: default
+      patch:
+        op: set_downloaders
+        downloaders:
+        - name: NZBGet
+          type: Nzbget
+          url: http://elx-nzbget:6789
+          category: movies
+          tags:
+          - elixir
+          - usenet
+          enabled: true
+  blueprint:
+    id: setup
+    version: 1.0.0
+    kind: blueprint
+    name: Arr Stack
+    description: Sonarr + Radarr + Prowlarr + qBittorrent + NZBGet stack with public
+      indexers and explicit phased execution.
+    permissions: []
+    execution:
+      packages:
+      - sonarr
+      - radarr
+      - prowlarr
+      - elixir.modules.qbittorrent
+      - elixir.modules.nzbget
+      - public-indexers
+      - prowlarr-sonarr
+      - prowlarr-radarr
+      - sonarr-defaults
+      - sonarr-quality-policy
+      - radarr-defaults
+      - radarr-quality-policy
+      - qbittorrent-defaults
+      - nzbget-defaults
+      - sonarr-qbittorrent
+      - radarr-qbittorrent
+      - sonarr-nzbget
+      - radarr-nzbget
+      instances:
+      - id: sonarr
+        extension_id: sonarr
+        name: default
+      - id: radarr
+        extension_id: radarr
+        name: default
+      - id: prowlarr
+        extension_id: prowlarr
+        name: default
+      - id: qbittorrent
+        extension_id: elixir.modules.qbittorrent
+        name: default
+      - id: nzbget
+        extension_id: elixir.modules.nzbget
+        name: default
+      ownership:
+      - domain: prowlarr.indexers.public
+        owner: public-indexers
+      - domain: prowlarr.apps.sonarr
+        owner: prowlarr-sonarr
+      - domain: prowlarr.apps.radarr
+        owner: prowlarr-radarr
+      - domain: sonarr.defaults
+        owner: sonarr-defaults
+      - domain: sonarr.quality_policy.default
+        owner: sonarr-quality-policy
+      - domain: radarr.defaults
+        owner: radarr-defaults
+      - domain: radarr.quality_policy.default
+        owner: radarr-quality-policy
+      - domain: qbittorrent.defaults
+        owner: qbittorrent-defaults
+      - domain: nzbget.defaults
+        owner: nzbget-defaults
+      - domain: sonarr.download_clients.qbittorrent
+        owner: sonarr-qbittorrent
+      - domain: radarr.download_clients.qbittorrent
+        owner: radarr-qbittorrent
+      - domain: sonarr.download_clients.nzbget
+        owner: sonarr-nzbget
+      - domain: radarr.download_clients.nzbget
+        owner: radarr-nzbget
+      phases:
+      - id: install_packages
+        barrier: true
+        steps:
+        - type: ensure_package_installed
+          extension_id: sonarr
+        - type: ensure_package_installed
+          extension_id: radarr
+        - type: ensure_package_installed
+          extension_id: prowlarr
+        - type: ensure_package_installed
+          extension_id: elixir.modules.qbittorrent
+        - type: ensure_package_installed
+          extension_id: elixir.modules.nzbget
+        - type: ensure_package_installed
+          extension_id: public-indexers
+        - type: ensure_package_installed
+          extension_id: prowlarr-sonarr
+        - type: ensure_package_installed
+          extension_id: prowlarr-radarr
+        - type: ensure_package_installed
+          extension_id: sonarr-defaults
+        - type: ensure_package_installed
+          extension_id: sonarr-quality-policy
+        - type: ensure_package_installed
+          extension_id: radarr-defaults
+        - type: ensure_package_installed
+          extension_id: radarr-quality-policy
+        - type: ensure_package_installed
+          extension_id: qbittorrent-defaults
+        - type: ensure_package_installed
+          extension_id: nzbget-defaults
+        - type: ensure_package_installed
+          extension_id: sonarr-qbittorrent
+        - type: ensure_package_installed
+          extension_id: radarr-qbittorrent
+        - type: ensure_package_installed
+          extension_id: sonarr-nzbget
+        - type: ensure_package_installed
+          extension_id: radarr-nzbget
+      - id: create_instances
+        barrier: true
+        steps:
+        - type: ensure_instance_installed
+          instance: sonarr
+        - type: ensure_instance_installed
+          instance: radarr
+        - type: ensure_instance_installed
+          instance: prowlarr
+        - type: ensure_instance_installed
+          instance: qbittorrent
+        - type: ensure_instance_installed
+          instance: nzbget
+      - id: start_runtimes
+        barrier: true
+        steps:
+        - type: ensure_runtime_running
+          instance: sonarr
+        - type: ensure_runtime_running
+          instance: radarr
+        - type: ensure_runtime_running
+          instance: prowlarr
+        - type: ensure_runtime_running
+          instance: qbittorrent
+        - type: ensure_runtime_running
+          instance: nzbget
+      - id: register_providers
+        barrier: true
+        steps:
+        - type: create_or_update_providers
+          instance: sonarr
+        - type: create_or_update_providers
+          instance: radarr
+        - type: create_or_update_providers
+          instance: prowlarr
+        - type: create_or_update_providers
+          instance: qbittorrent
+        - type: create_or_update_providers
+          instance: nzbget
+      - id: wait_transport
+        barrier: true
+        steps:
+        - type: transport_gate
+          instance: sonarr
+          capability: media.manager.tv
+          slot: default
+          timeout_seconds: 120
+        - type: transport_gate
+          instance: radarr
+          capability: media.manager.movies
+          slot: default
+          timeout_seconds: 120
+        - type: transport_gate
+          instance: prowlarr
+          capability: indexer.registry
+          slot: default
+          timeout_seconds: 120
+        - type: transport_gate
+          instance: qbittorrent
+          capability: downloader.torrent
+          slot: default
+          timeout_seconds: 120
+        - type: transport_gate
+          instance: nzbget
+          capability: downloader.nzb
+          slot: default
+          timeout_seconds: 120
+      - id: bootstrap_managed_providers
+        barrier: true
+        steps:
+        - type: bootstrap_gate
+          instance: sonarr
+          capability: media.manager.tv
+          slot: default
+          timeout_seconds: 120
+        - type: bootstrap_gate
+          instance: radarr
+          capability: media.manager.movies
+          slot: default
+          timeout_seconds: 120
+        - type: bootstrap_gate
+          instance: prowlarr
+          capability: indexer.registry
+          slot: default
+          timeout_seconds: 120
+        - type: bootstrap_gate
+          instance: qbittorrent
+          capability: downloader.torrent
+          slot: default
+          timeout_seconds: 120
+        - type: bootstrap_gate
+          instance: nzbget
+          capability: downloader.nzb
+          slot: default
+          timeout_seconds: 120
+      - id: wait_runtime_health
+        barrier: true
+        steps:
+        - type: health_gate
+          instance: sonarr
+          capability: media.manager.tv
+          slot: default
+          timeout_seconds: 120
+        - type: health_gate
+          instance: radarr
+          capability: media.manager.movies
+          slot: default
+          timeout_seconds: 120
+        - type: health_gate
+          instance: prowlarr
+          capability: indexer.registry
+          slot: default
+          timeout_seconds: 120
+        - type: health_gate
+          instance: qbittorrent
+          capability: downloader.torrent
+          slot: default
+          timeout_seconds: 120
+        - type: health_gate
+          instance: nzbget
+          capability: downloader.nzb
+          slot: default
+          timeout_seconds: 120
+      - id: apply_wiring
+        barrier: true
+        steps:
+        - type: apply_connector
+          connector_id: public-indexers
+          target_instance: prowlarr
+          target_capability: indexer.registry
+          target_slot: default
+          ownership_domains:
+          - prowlarr.indexers.public
+        - type: apply_connector
+          connector_id: prowlarr-sonarr
+          target_instance: prowlarr
+          target_capability: indexer.registry
+          target_slot: default
+          ownership_domains:
+          - prowlarr.apps.sonarr
+        - type: apply_connector
+          connector_id: prowlarr-radarr
+          target_instance: prowlarr
+          target_capability: indexer.registry
+          target_slot: default
+          ownership_domains:
+          - prowlarr.apps.radarr
+        - type: apply_connector
+          connector_id: sonarr-defaults
+          target_instance: sonarr
+          target_capability: media.manager.tv
+          target_slot: default
+          ownership_domains:
+          - sonarr.defaults
+        - type: apply_connector
+          connector_id: sonarr-quality-policy
+          target_instance: sonarr
+          target_capability: media.manager.tv
+          target_slot: default
+          ownership_domains:
+          - sonarr.quality_policy.default
+        - type: apply_connector
+          connector_id: radarr-defaults
+          target_instance: radarr
+          target_capability: media.manager.movies
+          target_slot: default
+          ownership_domains:
+          - radarr.defaults
+        - type: apply_connector
+          connector_id: radarr-quality-policy
+          target_instance: radarr
+          target_capability: media.manager.movies
+          target_slot: default
+          ownership_domains:
+          - radarr.quality_policy.default
+        - type: apply_connector
+          connector_id: qbittorrent-defaults
+          target_instance: qbittorrent
+          target_capability: downloader.torrent
+          target_slot: default
+          ownership_domains:
+          - qbittorrent.defaults
+        - type: apply_connector
+          connector_id: nzbget-defaults
+          target_instance: nzbget
+          target_capability: downloader.nzb
+          target_slot: default
+          ownership_domains:
+          - nzbget.defaults
+        - type: apply_connector
+          connector_id: sonarr-qbittorrent
+          target_instance: sonarr
+          target_capability: media.manager.tv
+          target_slot: default
+          ownership_domains:
+          - sonarr.download_clients.qbittorrent
+        - type: apply_connector
+          connector_id: radarr-qbittorrent
+          target_instance: radarr
+          target_capability: media.manager.movies
+          target_slot: default
+          ownership_domains:
+          - radarr.download_clients.qbittorrent
+        - type: apply_connector
+          connector_id: sonarr-nzbget
+          target_instance: sonarr
+          target_capability: media.manager.tv
+          target_slot: default
+          ownership_domains:
+          - sonarr.download_clients.nzbget
+        - type: apply_connector
+          connector_id: radarr-nzbget
+          target_instance: radarr
+          target_capability: media.manager.movies
+          target_slot: default
+          ownership_domains:
+          - radarr.download_clients.nzbget
+        - type: apply_binding
+          consumer_instance: sonarr
+          consumer_capability: media.manager.tv
+          consumer_slot: default
+          provider_instance: prowlarr
+          provider_capability: indexer.registry
+          provider_slot: default
+        - type: apply_binding
+          consumer_instance: sonarr
+          consumer_capability: media.manager.tv
+          consumer_slot: default
+          provider_instance: qbittorrent
+          provider_capability: downloader.torrent
+          provider_slot: default
+        - type: apply_binding
+          consumer_instance: sonarr
+          consumer_capability: media.manager.tv
+          consumer_slot: default
+          provider_instance: nzbget
+          provider_capability: downloader.nzb
+          provider_slot: default
+        - type: apply_binding
+          consumer_instance: radarr
+          consumer_capability: media.manager.movies
+          consumer_slot: default
+          provider_instance: prowlarr
+          provider_capability: indexer.registry
+          provider_slot: default
+        - type: apply_binding
+          consumer_instance: radarr
+          consumer_capability: media.manager.movies
+          consumer_slot: default
+          provider_instance: qbittorrent
+          provider_capability: downloader.torrent
+          provider_slot: default
+        - type: apply_binding
+          consumer_instance: radarr
+          consumer_capability: media.manager.movies
+          consumer_slot: default
+          provider_instance: nzbget
+          provider_capability: downloader.nzb
+          provider_slot: default
+    optional_addons:
+    - extension_id: nzbgeek
+      title: NZBGeek
+      description: Add your NZBGeek account to Prowlarr for more Usenet search results.
+      target:
+        capability: indexer.registry
+        slot: default
+      required_fields:
+      - api_key
+      secret_key_prefix: indexer.nzbgeek
+    policies:
+      reuse_existing: true
+      conflicts: prompt
+      allow_community_extensions: true

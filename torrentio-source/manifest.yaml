@@ -1,0 +1,81 @@
+id: elx:onccuaai552twis37i2jfdup2xb2ufbdn27sp3zljelnn7qzvtwq/torrentio-source
+version: 1.0.0
+kind: module
+name: Torrentio-Compatible Source
+description: Queries a Torrentio-compatible Stremio addon for torrent streams and returns them as Elixir acquisition candidates.
+permissions:
+  - network.egress
+provides:
+  - capability: acquisition.candidate_provider
+    slot: default
+    cardinality: many
+    implementation: torrentio_stremio
+    scope:
+      media_types: [movie, tv, anime]
+      actions: [search]
+      requires_account: false
+    endpoint:
+      type: source-js-v1
+requires:
+  downloads:
+    - kind: debrid
+      mode: broker
+      optional: true
+    - kind: torrent
+      mode: broker
+      optional: true
+runtime:
+  type: container
+  profile: source-js-v1
+  entrypoint: src/provider.mjs
+  security:
+    run_as_non_root: true
+    read_only_rootfs: true
+    no_new_privileges: true
+    drop_capabilities: [ALL]
+    prohibit_docker_socket: true
+    prohibit_host_media_mounts: true
+    cpu_quota: '0.2'
+    memory_limit_mb: 64
+control_surface:
+  adapter: generic_v1
+  owned_settings:
+    - id: baseUrl
+      label: Addon base URL
+      description: Base URL or manifest URL for the Stremio-compatible source.
+      type: text
+      ownership: seeded
+      advanced: true
+      default: "https://torrentio.strem.fun"
+      storage: {type: instance_setting, key: baseUrl}
+    - id: addonPath
+      label: Addon path
+      description: Optional configured addon path before /stream. It can contain debrid credentials, so it is stored as a secret.
+      type: password
+      secret: true
+      ownership: managed
+      storage: {type: instance_secret, key: addon_path}
+    - id: routePolicy
+      label: Route policy
+      description: Preferred Elixir route for normalized torrent candidates.
+      type: select
+      ownership: seeded
+      advanced: true
+      default: debrid_first
+      storage: {type: instance_setting, key: routePolicy}
+      options:
+        - {value: debrid_first, label: Prefer debrid}
+        - {value: debrid_only, label: Debrid only}
+        - {value: torrent_only, label: Torrent only}
+    - {id: allowedQualities, label: Allowed qualities, description: 'Optional comma-separated quality list, such as 2160p,1080p.', type: text, ownership: seeded, advanced: true, default: '', storage: {type: instance_setting, key: allowedQualities}}
+    - {id: maxSizeGb, label: Max size GB, description: Optional maximum release size in gigabytes., type: number, ownership: seeded, advanced: true, storage: {type: instance_setting, key: maxSizeGb}}
+    - {id: requiredLanguages, label: Required languages, description: 'Optional comma-separated language hints, such as en,ja,multi.', type: text, ownership: seeded, advanced: true, default: '', storage: {type: instance_setting, key: requiredLanguages}}
+    - {id: resultLimit, label: Result limit, description: Maximum candidates returned per search., type: number, ownership: seeded, advanced: true, default: 50, storage: {type: instance_setting, key: resultLimit}}
+    - {id: timeoutMs, label: Source timeout ms, description: HTTP timeout for source stream requests., type: number, ownership: seeded, advanced: true, default: 12000, storage: {type: instance_setting, key: timeoutMs}}
+    - {id: retryCount, label: Retry count, description: Bounded retry count for transient source failures., type: number, ownership: seeded, advanced: true, default: 1, storage: {type: instance_setting, key: retryCount}}
+    - {id: maxLookupAttempts, label: Max lookup attempts, description: Maximum Stremio id lookup attempts per target., type: number, ownership: seeded, advanced: true, default: 6, storage: {type: instance_setting, key: maxLookupAttempts}}
+    - {id: releaseDelaySeconds, label: Release delay seconds, description: Optional delay after known air time before discovery searches., type: number, ownership: seeded, advanced: true, default: 0, storage: {type: instance_setting, key: releaseDelaySeconds}}
+  native_only:
+    - id: sourceConfiguration
+      title: Source-specific configuration
+      description: Provider sets and source catalogs remain source-defined. Elixir only stores the selected endpoint and filtering preferences.
